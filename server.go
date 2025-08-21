@@ -4,21 +4,33 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
+
+	"web-config/config"
+	"web-config/customerror"
+	"web-config/hack/ledcontrol"
+	"web-config/hack/motorcontrol"
+	"web-config/hack/rtspserver"
+	"web-config/hack/sshserver"
+	"web-config/hack/websocketstreamserver"
 
 	"github.com/gin-contrib/static"
 	"github.com/gin-gonic/gin"
-	"github.com/telmomarques/x360h1080p-web-config-server/config"
-	"github.com/telmomarques/x360h1080p-web-config-server/customerror"
-	"github.com/telmomarques/x360h1080p-web-config-server/hack/rtspserver"
-	"github.com/telmomarques/x360h1080p-web-config-server/hack/sshserver"
-	"github.com/telmomarques/x360h1080p-web-config-server/hack/websocketstreamserver"
 )
 
 var wwwPath = "/mnt/sdcard/hacks/web-config/www"
-var port = "80"
+var port = "9090"
+
+var statusServices = [...]string{
+	"motorcontrol",
+	"rtspserver",
+	"websocketstreamserver",
+	"sshserver",
+}
 
 func setupRouter() *gin.Engine {
 	r := gin.Default()
+	r.SetTrustedProxies(nil)
 
 	r.Use(static.Serve("/js", static.LocalFile(wwwPath+"/js", false)))
 	r.Use(static.Serve("/css", static.LocalFile(wwwPath+"/css", false)))
@@ -35,6 +47,102 @@ func setupRouter() *gin.Engine {
 	apiHackRoutes := r.Group("/api/hack")
 
 	/**
+	 * Status
+	 */
+	statusHackRoutes := apiHackRoutes.Group("/status")
+
+	statusHackRoutes.GET("/getAllStatus", func(c *gin.Context) {
+		var statusList []string
+		for _, serv := range statusServices {
+			statusList = append(statusList, serv)
+		}
+		c.JSON(http.StatusOK, statusList)
+	})
+
+	/**
+	 * Led Control
+	 */
+	ledcontrolHackRoutes := apiHackRoutes.Group("/" + ledcontrol.ID)
+
+	ledcontrolHackRoutes.GET("/state", func(c *gin.Context) {
+		led := c.Query("led")
+		if led == "" {
+			c.JSON(http.StatusBadRequest, "Please provide a led.")
+			return
+		}
+		c.JSON(http.StatusOK, ledcontrol.GetLedStatus(led))
+	})
+
+	ledcontrolHackRoutes.GET("/blink", func(c *gin.Context) {
+		led := c.Query("led")
+		count, err := strconv.Atoi(c.Query("count"))
+		if led == "" && err == nil {
+			c.JSON(http.StatusBadRequest, "Please provide a led.")
+			return
+		}
+		ledcontrol.BlinkLed(led, count)
+		c.String(http.StatusAccepted, "Success!")
+	})
+
+	ledcontrolHackRoutes.POST("/state", func(c *gin.Context) {
+		var led ledcontrol.Led
+		if err := c.ShouldBindJSON(&led); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.Bind(&led)
+		success := ledcontrol.SetLed(led)
+		if !success {
+			c.String(http.StatusInternalServerError, "Error changing led state. ")
+			return
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"status": "accepted",
+			"led":    led.Name,
+			"state":  led.Power,
+		})
+	})
+
+	/**
+	 * Motor Control
+	 */
+	motorcontrolHackRoutes := apiHackRoutes.Group("/" + motorcontrol.ID)
+
+	motorcontrolHackRoutes.GET("/getStatus", func(c *gin.Context) {
+		c.JSON(http.StatusOK, motorcontrol.GetServiceStatus())
+	})
+
+	motorcontrolHackRoutes.GET("/getConfig", func(c *gin.Context) {
+		c.File(config.GetMetaConfigFilePathForHack(motorcontrol.ID))
+	})
+
+	motorcontrolHackRoutes.GET("/getPosition", func(c *gin.Context) {
+		c.JSON(http.StatusOK, motorcontrol.GetCurrentPosition())
+	})
+
+	motorcontrolHackRoutes.POST("/setConfig", func(c *gin.Context) {
+		var motorcontrolConfig motorcontrol.MotorControlConfig
+		var httpStatus = http.StatusOK
+		c.Bind(&motorcontrolConfig)
+		success := motorcontrol.SaveConfig(motorcontrolConfig)
+		if !success {
+			httpStatus = http.StatusInternalServerError
+		}
+		c.Status(httpStatus)
+	})
+
+	motorcontrolHackRoutes.POST("/cmnd", func(c *gin.Context) {
+		var motorControlCommand motorcontrol.MotorControlCommand
+		var httpStatus = http.StatusOK
+		c.Bind(&motorControlCommand)
+		success := motorcontrol.Command(motorControlCommand)
+		if !success {
+			httpStatus = http.StatusInternalServerError
+		}
+		c.Status(httpStatus)
+	})
+
+	/**
 	 * RTSP Server
 	 */
 	rtspServerHackRoutes := apiHackRoutes.Group("/" + rtspserver.ID)
@@ -45,6 +153,10 @@ func setupRouter() *gin.Engine {
 
 	rtspServerHackRoutes.GET("/info", func(c *gin.Context) {
 		c.String(http.StatusOK, rtspserver.Info())
+	})
+
+	rtspServerHackRoutes.GET("/getServiceStatus", func(c *gin.Context) {
+		c.JSON(http.StatusOK, rtspserver.GetServiceStatus())
 	})
 
 	rtspServerHackRoutes.POST("/config", func(c *gin.Context) {

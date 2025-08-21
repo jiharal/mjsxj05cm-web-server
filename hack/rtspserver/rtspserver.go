@@ -4,10 +4,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/telmomarques/x360h1080p-web-config-server/network"
+	"web-config/network"
 
-	"github.com/telmomarques/x360h1080p-web-config-server/config"
-	"github.com/telmomarques/x360h1080p-web-config-server/service"
+	"web-config/config"
+	"web-config/service"
 )
 
 type RTSPServerConfig struct {

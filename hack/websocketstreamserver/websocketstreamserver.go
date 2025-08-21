@@ -1,9 +1,9 @@
 package websocketstreamserver
 
 import (
-	"github.com/telmomarques/x360h1080p-web-config-server/config"
-	"github.com/telmomarques/x360h1080p-web-config-server/network"
-	"github.com/telmomarques/x360h1080p-web-config-server/service"
+	"web-config/config"
+	"web-config/network"
+	"web-config/service"
 )
 
 const ID = "websocket-stream-server"
